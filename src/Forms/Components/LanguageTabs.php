@@ -3,10 +3,12 @@
 namespace Pixelpeter\FilamentLanguageTabs\Forms\Components;
 
 use Closure;
+use Filament\Actions\Action;
 use Filament\Forms\Components\Builder;
 use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Concerns\InteractsWithForms;
+use Filament\Schemas\Components\Actions as ActionsComponent;
 use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Tabs\Tab;
@@ -44,6 +46,11 @@ class LanguageTabs extends Component
      */
     protected static array $hydrationHookPropertyCache = [];
 
+    /**
+     * @var array<string, array{attribute: string, locale: string}>
+     */
+    protected array $builderMeta = [];
+
     final public function __construct(array|Closure $schema)
     {
         $this->schema($schema);
@@ -51,6 +58,8 @@ class LanguageTabs extends Component
 
     public function schema(Closure|Schema|array $components): static
     {
+        $this->builderMeta = [];
+
         if ($components instanceof Schema) {
             $components = $components->getComponents();
         }
@@ -70,13 +79,27 @@ class LanguageTabs extends Component
                     $this->tabfields($components, $locale)
                 );
         }
-        $t = Tabs::make()
+        $tabsComponent = Tabs::make()
             ->key('language_tabs')
             ->schema(
                 $tabs
             );
+
+        $actionsComponent = ActionsComponent::make([
+            Action::make('refresh_language_tab_builders')
+                ->label('Обновить блоки')
+                ->color('gray')
+                ->size('sm')
+                ->button()
+                ->visible(fn (): bool => ! empty($this->builderMeta))
+                ->action(fn () => $this->refreshBuilderComponents()),
+        ])
+            ->key('language_tabs_actions')
+            ->alignEnd();
+
         $this->childComponents([
-            $t,
+            $tabsComponent,
+            $actionsComponent,
         ]);
 
         return $this;
@@ -106,8 +129,13 @@ class LanguageTabs extends Component
             $clone->statePath($statePath);
 
             if ($clone instanceof Builder) {
-                $clone->key("language_tabs.{$componentName}." . spl_object_id($clone));
+                $componentKey = "language_tabs.{$componentName}." . spl_object_id($clone);
+                $clone->key($componentKey);
                 $this->prepareBuilderForLocale($clone, $base, $locale);
+                $this->builderMeta[$componentKey] = [
+                    'attribute' => $base,
+                    'locale' => $locale,
+                ];
             } elseif ($clone instanceof Repeater) {
                 $this->prepareRepeaterForLocale($clone, $base, $locale);
             } elseif ($clone instanceof Field) {
@@ -389,6 +417,62 @@ class LanguageTabs extends Component
                 $refresh(["{$attribute}.{$locale}", $attribute]);
             }
         });
+    }
+
+    protected function refreshBuilderComponents(): void
+    {
+        $schema = $this->getChildSchema();
+
+        if (! $schema) {
+            return;
+        }
+
+        foreach ($this->builderMeta as $builderKey => $meta) {
+            if (! is_array($meta)) {
+                continue;
+            }
+
+            $attribute = $meta['attribute'] ?? null;
+            $locale = $meta['locale'] ?? null;
+
+            dd($locale,$attribute);
+
+            if (! is_string($attribute) || ! is_string($locale)) {
+                continue;
+            }
+
+            $component = $schema->getComponent($builderKey, withActions: false, withHidden: true, isAbsoluteKey: true);
+
+            if (! $component instanceof Builder) {
+                continue;
+            }
+
+            $get = $component->makeGetUtility();
+
+            $translations = $get($attribute);
+
+            if (! is_array($translations)) {
+                $translations = [];
+            }
+
+            $localeData = $translations[$locale] ?? [];
+
+            if (! is_array($localeData)) {
+                $localeData = [];
+            }
+
+            $component->rawState($localeData);
+
+            foreach ($localeData as $itemKey => $itemData) {
+                if (! is_array($itemData)) {
+                    continue;
+                }
+
+                $component->getChildSchema($itemKey)?->fill($itemData['data'] ?? []);
+            }
+
+            $component->callAfterStateUpdated();
+        }
     }
 
     protected function getExistingHydrationHook(Component $component): ?Closure
