@@ -3,14 +3,19 @@
 namespace Pixelpeter\FilamentLanguageTabs\Forms\Components;
 
 use Closure;
+use Filament\Forms\Components\Builder;
 use Filament\Forms\Components\Field;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Schemas\Schema;
+use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
+use ReflectionClass;
+use ReflectionException;
 
 class LanguageTabs extends Component
 {
@@ -28,6 +33,21 @@ class LanguageTabs extends Component
      * @var array<int, string>
      */
     protected array $normalisedAttributes = [];
+
+    /**
+     * @var array<string, bool>
+     */
+    protected array $processedComponents = [];
+
+    /**
+     * @var array<class-string<Component>, \ReflectionProperty|false>
+     */
+    protected static array $hydrationHookPropertyCache = [];
+
+    /**
+     * @var array<string, bool>
+     */
+    protected array $skipAfterStateUpdated = [];
 
     final public function __construct(array|Closure $schema)
     {
@@ -90,11 +110,15 @@ class LanguageTabs extends Component
             $clone->name($componentName);
             $clone->statePath($statePath);
 
-            if ($clone instanceof Field) {
+            if ($clone instanceof Builder) {
+                $this->prepareBuilderForLocale($clone, $base, $locale);
+            } elseif ($clone instanceof Repeater) {
+                $this->prepareRepeaterForLocale($clone, $base, $locale);
+            } elseif ($clone instanceof Field) {
                 $this->prepareFieldForLocale($clone, $base, $locale);
             }
 
-            if (!in_array($locale, $required_locales, true)) {
+            if (! in_array($locale, $required_locales, true)) {
                 $clone->required(false);
             }
 
@@ -139,8 +163,7 @@ class LanguageTabs extends Component
 
             $attributeState = $get($attribute);
 
-            if (!is_array($attributeState)) {
-
+            if (! is_array($attributeState)) {
                 $attributeState = $this->normaliseAttributeState($component, $attribute, $attributeState);
                 $set($attribute, $attributeState, shouldCallUpdatedHooks: false);
             }
@@ -154,7 +177,7 @@ class LanguageTabs extends Component
 
             $translations = $get($attribute);
 
-            if (!is_array($translations)) {
+            if (! is_array($translations)) {
                 $translations = [];
             }
 
@@ -165,24 +188,21 @@ class LanguageTabs extends Component
             $livewire = $component->getLivewire();
 
             if (method_exists($livewire, 'refreshFormData')) {
-                /** @var callable(array<string>) $refresh */
+                /** @var callable(array<int, string>) $refresh */
                 $refresh = [$livewire, 'refreshFormData'];
-                $refresh([$attribute]);
+                $refresh(["{$attribute}.{$locale}", $attribute]);
             }
         });
     }
 
-    protected function normaliseAttributeState(Field $component, string $attribute, mixed $rawState): array
+    protected function normaliseAttributeState(Component $component, string $attribute, mixed $rawState): array
     {
         if (in_array($attribute, $this->normalisedAttributes, true) && is_array($rawState)) {
             return $rawState;
         }
 
         $record = $this->resolveRecord($component);
-
-
-        $translations = $record->getTranslations($attribute);
-
+        $translations = $record?->getTranslations($attribute);
 
         if (!is_array($translations) || empty($translations)) {
             if (is_array($rawState)) {
@@ -196,7 +216,7 @@ class LanguageTabs extends Component
         }
 
         $locales = $this->resolveLocales();
-        if (!empty($locales)) {
+        if (! empty($locales)) {
             $translations = Arr::only($translations, $locales);
         }
 
@@ -226,7 +246,7 @@ class LanguageTabs extends Component
         return $locales[0] ?? config('app.locale', 'en');
     }
 
-    protected function resolveRecord(Field $component): ?Model
+    protected function resolveRecord(Component $component): ?Model
     {
         $livewire = $component->getLivewire();
 
@@ -242,4 +262,205 @@ class LanguageTabs extends Component
 
         return null;
     }
+
+    protected function prepareBuilderForLocale(
+        Builder $builder,
+        string $attribute,
+        string $locale
+    ): void {
+        $componentId = spl_object_id($builder);
+        $processKey = "{$componentId}_{$locale}";
+
+        if (isset($this->processedComponents[$processKey])) {
+            return;
+        }
+
+        $this->processedComponents[$processKey] = true;
+
+        $existingHydrated = $this->getExistingHydrationHook($builder);
+
+        $builder->afterStateHydrated(function (
+            Builder $component,
+            ?array $state
+        ) use ($existingHydrated, $attribute, $locale, $processKey): void {
+            if ($existingHydrated !== null) {
+                $existingHydrated($component, $state);
+            }
+
+            $get = $component->makeGetUtility();
+            $set = $component->makeSetUtility();
+
+            $attributeState = $get($attribute);
+
+            if (! is_array($attributeState)) {
+                $attributeState = $this->normaliseAttributeState($component, $attribute, $attributeState);
+                $set($attribute, $attributeState, shouldCallUpdatedHooks: false);
+            }
+
+            $localeData = Arr::get($attributeState, $locale);
+
+            // ВСЕГДА устанавливаем state для сброса предыдущей локали
+            // Если данных нет (null) - передаем [] для дефолтного UI Builder
+            $component->state(is_array($localeData) ? $localeData : []);
+
+            $this->skipAfterStateUpdated[$processKey] = true;
+            try {
+                $component->callAfterStateUpdated();
+            } finally {
+                unset($this->skipAfterStateUpdated[$processKey]);
+            }
+        });
+
+        $builder->afterStateUpdated(function (Builder $component, $state) use ($attribute, $locale, $processKey): void {
+            $get = $component->makeGetUtility();
+            $set = $component->makeSetUtility();
+
+            $translations = $get($attribute);
+
+            if (! is_array($translations)) {
+                $translations = [];
+            }
+
+            // Сохраняем state, пустой state = пустой массив для Builder/Repeater
+            $translations[$locale] = $state ?? [];
+
+            $set(
+                $attribute,
+                $translations,
+                shouldCallUpdatedHooks: ! ($this->skipAfterStateUpdated[$processKey] ?? false)
+            );
+
+            $livewire = $component->getLivewire();
+
+            if (method_exists($livewire, 'refreshFormData')) {
+                /** @var callable(array<int, string>) $refresh */
+                $refresh = [$livewire, 'refreshFormData'];
+                $refresh(["{$attribute}.{$locale}", $attribute]);
+            }
+        });
+    }
+
+    protected function prepareRepeaterForLocale(
+        Repeater $repeater,
+        string $attribute,
+        string $locale
+    ): void {
+        $componentId = spl_object_id($repeater);
+        $processKey = "{$componentId}_{$locale}";
+
+        if (isset($this->processedComponents[$processKey])) {
+            return;
+        }
+
+        $this->processedComponents[$processKey] = true;
+
+        $existingHydrated = $this->getExistingHydrationHook($repeater);
+
+        $repeater->afterStateHydrated(function (
+            Repeater $component,
+            ?array $state
+        ) use ($existingHydrated, $attribute, $locale, $processKey): void {
+            if ($existingHydrated !== null) {
+                $existingHydrated($component, $state);
+            }
+
+            $get = $component->makeGetUtility();
+            $set = $component->makeSetUtility();
+
+            $attributeState = $get($attribute);
+
+            if (! is_array($attributeState)) {
+                $attributeState = $this->normaliseAttributeState($component, $attribute, $attributeState);
+                $set($attribute, $attributeState, shouldCallUpdatedHooks: false);
+            }
+
+            $localeData = Arr::get($attributeState, $locale);
+
+            // ВСЕГДА устанавливаем state для сброса предыдущей локали
+            // Если данных нет (null) - передаем [] для дефолтного UI Builder
+            $component->state(is_array($localeData) ? $localeData : []);
+
+            $this->skipAfterStateUpdated[$processKey] = true;
+            try {
+                $component->callAfterStateUpdated();
+            } finally {
+                unset($this->skipAfterStateUpdated[$processKey]);
+            }
+        });
+
+        $repeater->afterStateUpdated(function (Repeater $component, $state) use ($attribute, $locale, $processKey): void {
+            $get = $component->makeGetUtility();
+            $set = $component->makeSetUtility();
+
+            $translations = $get($attribute);
+
+            if (! is_array($translations)) {
+                $translations = [];
+            }
+
+            // Сохраняем state, пустой state = пустой массив для Builder/Repeater
+            $translations[$locale] = $state ?? [];
+
+            $set(
+                $attribute,
+                $translations,
+                shouldCallUpdatedHooks: ! ($this->skipAfterStateUpdated[$processKey] ?? false)
+            );
+
+            $livewire = $component->getLivewire();
+
+            if (method_exists($livewire, 'refreshFormData')) {
+                /** @var callable(array<int, string>) $refresh */
+                $refresh = [$livewire, 'refreshFormData'];
+                $refresh(["{$attribute}.{$locale}", $attribute]);
+            }
+        });
+    }
+
+    protected function getExistingHydrationHook(Component $component): ?Closure
+    {
+        $class = $component::class;
+
+        if (array_key_exists($class, static::$hydrationHookPropertyCache)) {
+            $property = static::$hydrationHookPropertyCache[$class];
+
+            if ($property === false) {
+                return null;
+            }
+
+            $hook = $property->getValue($component);
+
+            return $hook instanceof Closure ? $hook : null;
+        }
+
+        try {
+            $reflection = new ReflectionClass($component);
+            if (! $reflection->hasProperty('afterStateHydrated')) {
+                static::$hydrationHookPropertyCache[$class] = false;
+
+                return null;
+            }
+
+            $property = $reflection->getProperty('afterStateHydrated');
+            $property->setAccessible(true);
+
+            static::$hydrationHookPropertyCache[$class] = $property;
+
+            $hook = $property->getValue($component);
+
+            return $hook instanceof Closure ? $hook : null;
+        } catch (ReflectionException) {
+            static::$hydrationHookPropertyCache[$class] = false;
+
+            return null;
+        }
+    }
+
+    public function render(): View
+    {
+        $this->processedComponents = [];
+
+        return parent::render();
+    }
+
 }
