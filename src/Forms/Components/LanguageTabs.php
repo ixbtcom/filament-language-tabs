@@ -44,11 +44,6 @@ class LanguageTabs extends Component
      */
     protected static array $hydrationHookPropertyCache = [];
 
-    /**
-     * @var array<string, bool>
-     */
-    protected array $skipAfterStateUpdated = [];
-
     final public function __construct(array|Closure $schema)
     {
         $this->schema($schema);
@@ -111,6 +106,7 @@ class LanguageTabs extends Component
             $clone->statePath($statePath);
 
             if ($clone instanceof Builder) {
+                $clone->key("language_tabs.{$componentName}." . spl_object_id($clone));
                 $this->prepareBuilderForLocale($clone, $base, $locale);
             } elseif ($clone instanceof Repeater) {
                 $this->prepareRepeaterForLocale($clone, $base, $locale);
@@ -282,7 +278,7 @@ class LanguageTabs extends Component
         $builder->afterStateHydrated(function (
             Builder $component,
             ?array $state
-        ) use ($existingHydrated, $attribute, $locale, $processKey): void {
+        ) use ($existingHydrated, $attribute, $locale): void {
             if ($existingHydrated !== null) {
                 $existingHydrated($component, $state);
             }
@@ -302,16 +298,9 @@ class LanguageTabs extends Component
             // ВСЕГДА устанавливаем state для сброса предыдущей локали
             // Если данных нет (null) - передаем [] для дефолтного UI Builder
             $component->state(is_array($localeData) ? $localeData : []);
-
-            $this->skipAfterStateUpdated[$processKey] = true;
-            try {
-                $component->callAfterStateUpdated();
-            } finally {
-                unset($this->skipAfterStateUpdated[$processKey]);
-            }
         });
 
-        $builder->afterStateUpdated(function (Builder $component, $state) use ($attribute, $locale, $processKey): void {
+        $builder->afterStateUpdated(function (Builder $component, $state) use ($attribute, $locale): void {
             $get = $component->makeGetUtility();
             $set = $component->makeSetUtility();
 
@@ -324,11 +313,7 @@ class LanguageTabs extends Component
             // Сохраняем state, пустой state = пустой массив для Builder/Repeater
             $translations[$locale] = $state ?? [];
 
-            $set(
-                $attribute,
-                $translations,
-                shouldCallUpdatedHooks: ! ($this->skipAfterStateUpdated[$processKey] ?? false)
-            );
+            $set($attribute, $translations, shouldCallUpdatedHooks: true);
 
             $livewire = $component->getLivewire();
 
@@ -359,7 +344,7 @@ class LanguageTabs extends Component
         $repeater->afterStateHydrated(function (
             Repeater $component,
             ?array $state
-        ) use ($existingHydrated, $attribute, $locale, $processKey): void {
+        ) use ($existingHydrated, $attribute, $locale): void {
             if ($existingHydrated !== null) {
                 $existingHydrated($component, $state);
             }
@@ -379,16 +364,9 @@ class LanguageTabs extends Component
             // ВСЕГДА устанавливаем state для сброса предыдущей локали
             // Если данных нет (null) - передаем [] для дефолтного UI Builder
             $component->state(is_array($localeData) ? $localeData : []);
-
-            $this->skipAfterStateUpdated[$processKey] = true;
-            try {
-                $component->callAfterStateUpdated();
-            } finally {
-                unset($this->skipAfterStateUpdated[$processKey]);
-            }
         });
 
-        $repeater->afterStateUpdated(function (Repeater $component, $state) use ($attribute, $locale, $processKey): void {
+        $repeater->afterStateUpdated(function (Repeater $component, $state) use ($attribute, $locale): void {
             $get = $component->makeGetUtility();
             $set = $component->makeSetUtility();
 
@@ -401,11 +379,7 @@ class LanguageTabs extends Component
             // Сохраняем state, пустой state = пустой массив для Builder/Repeater
             $translations[$locale] = $state ?? [];
 
-            $set(
-                $attribute,
-                $translations,
-                shouldCallUpdatedHooks: ! ($this->skipAfterStateUpdated[$processKey] ?? false)
-            );
+            $set($attribute, $translations, shouldCallUpdatedHooks: true);
 
             $livewire = $component->getLivewire();
 
