@@ -94,7 +94,7 @@ class LanguageTabs extends Component
                 $this->prepareFieldForLocale($clone, $base, $locale);
             }
 
-            if (! in_array($locale, $required_locales, true)) {
+            if (!in_array($locale, $required_locales, true)) {
                 $clone->required(false);
             }
 
@@ -113,7 +113,7 @@ class LanguageTabs extends Component
     {
         $configuredLocales = config('filament-language-tabs.default_locales', []);
 
-        if (! empty($configuredLocales)) {
+        if (!empty($configuredLocales)) {
             return array_values(array_unique($configuredLocales));
         }
 
@@ -139,7 +139,8 @@ class LanguageTabs extends Component
 
             $attributeState = $get($attribute);
 
-            if (! is_array($attributeState)) {
+            if (!is_array($attributeState)) {
+
                 $attributeState = $this->normaliseAttributeState($component, $attribute, $attributeState);
                 $set($attribute, $attributeState, shouldCallUpdatedHooks: false);
             }
@@ -153,7 +154,7 @@ class LanguageTabs extends Component
 
             $translations = $get($attribute);
 
-            if (! is_array($translations)) {
+            if (!is_array($translations)) {
                 $translations = [];
             }
 
@@ -179,17 +180,11 @@ class LanguageTabs extends Component
 
         $record = $this->resolveRecord($component);
 
-        $translations = [];
 
-        if ($record && method_exists($record, 'getTranslations')) {
-            try {
-                $translations = $record->getTranslations($attribute);
-            } catch (\Throwable) {
-                $translations = [];
-            }
-        }
+        $translations = $record->getTranslations($attribute);
 
-        if (! is_array($translations) || empty($translations)) {
+
+        if (!is_array($translations) || empty($translations)) {
             if (is_array($rawState)) {
                 $translations = $rawState;
             } elseif ($rawState !== null && $rawState !== '') {
@@ -201,7 +196,7 @@ class LanguageTabs extends Component
         }
 
         $locales = $this->resolveLocales();
-        if (! empty($locales)) {
+        if (!empty($locales)) {
             $translations = Arr::only($translations, $locales);
         }
 
@@ -218,11 +213,11 @@ class LanguageTabs extends Component
     {
         if ($record) {
             if (method_exists($record, 'baseLocale')) {
-                return (string) $record->baseLocale();
+                return (string)$record->baseLocale();
             }
 
             if (property_exists($record, 'baseLocale')) {
-                return (string) $record->baseLocale;
+                return (string)$record->baseLocale;
             }
         }
 
