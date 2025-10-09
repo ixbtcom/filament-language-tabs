@@ -160,6 +160,14 @@ class LanguageTabs extends Component
             $translations[$locale] = $state === '' ? null : $state;
 
             $set($attribute, $translations, shouldCallUpdatedHooks: true);
+
+            $livewire = $component->getLivewire();
+
+            if (method_exists($livewire, 'refreshFormData')) {
+                /** @var callable(array<string>) $refresh */
+                $refresh = [$livewire, 'refreshFormData'];
+                $refresh([$attribute]);
+            }
         });
     }
 
