@@ -12,20 +12,27 @@ use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use Spatie\Translatable\Drivers\ExtraOnlyDriver;
+use Spatie\Translatable\Drivers\HybridColumnDriver;
 
-class LanguageTabs extends Tabs
+class LanguageTabsold2 extends Tabs
 {
     use InteractsWithForms;
 
     /**
-     * Исходная схема переводимых полей (массив / замыкание / Schema).
+     * Schema containing the components that should be translated.
      */
     protected array | Closure | Schema $translatableSchema = [];
 
+    public function schema(array|Closure|Schema $schema): static
+    {
+        return $this->translatableSchema($schema);
+    }
+
     /**
-     * Принимаем схему от пользователя (просто сохраняем).
+     * Set the schema to be translated.
      */
-    public function schema(array | Closure | Schema $schema): static
+    public function translatableSchema(array | Closure | Schema $schema): static
     {
         $this->translatableSchema = $schema;
 
@@ -33,7 +40,9 @@ class LanguageTabs extends Tabs
     }
 
     /**
-     * Превращаем исходную схему в конкретные экземпляры компонентов.
+     * Retrieve the components from the provided schema.
+     *
+     * @return array<int, Field|Builder|Repeater>
      */
     protected function getTranslatableComponents(): array
     {
@@ -47,12 +56,13 @@ class LanguageTabs extends Tabs
     }
 
     /**
-     * Для каждой локали создаём таб, клонируем поля и назначаем им локализованный statePath.
+     * Build tabs for each configured locale.
      */
     public function getDefaultChildComponents(): array
     {
         $components = $this->getTranslatableComponents();
         $locales = $this->resolveLocales();
+
         $tabs = [];
 
         foreach ($locales as $locale) {
@@ -68,6 +78,12 @@ class LanguageTabs extends Tabs
                     ->name("{$attribute}_{$locale}")
                     ->statePath($statePath);
 
+                if ($clone instanceof Builder) {
+                    $this->prepareBuilderForLocale($clone, $attribute, $locale);
+                } elseif ($clone instanceof Repeater) {
+                    $this->prepareRepeaterForLocale($clone, $attribute, $locale);
+                }
+
                 $fields[] = $clone;
             }
 
@@ -80,7 +96,7 @@ class LanguageTabs extends Tabs
     }
 
     /**
-     * Разбираем исходный statePath (может быть вложенным) и подставляем локализованный хвост.
+     * Determine the correct state path for the given attribute and locale.
      */
     protected function resolveStatePath(Field $component, string $attribute, string $locale): string
     {
@@ -96,14 +112,13 @@ class LanguageTabs extends Tabs
 
         $relativePath = $this->resolveAttributeStatePath($resolvedAttribute, $locale);
 
-        return $basePath
-            ? "$basePath.$relativePath"
-            : $relativePath;
+        if ($basePath) {
+            return "$basePath.$relativePath";
+        }
+
+        return $relativePath;
     }
 
-    /**
-     * Получаем относительный путь в зависимости от драйвера, указанного в $model->translatable.
-     */
     protected function resolveAttributeStatePath(string $attribute, string $locale): string
     {
         $livewire = $this->getLivewire();
@@ -118,51 +133,40 @@ class LanguageTabs extends Tabs
             return $this->resolveStatePathFromConfig($attribute, $locale);
         }
 
-        if (! method_exists($record, 'isTranslatableAttribute') || ! $record->isTranslatableAttribute($attribute)) {
+        if (! method_exists($record, 'driver') || ! method_exists($record, 'isTranslatableAttribute')) {
             return $attribute;
         }
-        $definition = $this->resolveAttributeDefinition($record, $attribute);
 
-        $driver = $definition['driver'] ?? config('translatable.default_driver', 'json');
-        $storageColumn = $definition['storage'] ?? $this->resolveStorageColumn($record);
-        $baseLocale = $this->resolveBaseLocale($record);
+        if (! $record->isTranslatableAttribute($attribute)) {
+            return $attribute;
+        }
 
-        return match ($driver) {
-            'hybrid' => $locale === $baseLocale
-                ? $attribute
-                : "$storageColumn.$locale.$attribute",
-            'extra_only' => "$storageColumn.$locale.$attribute",
-            default => "$attribute.$locale",
-        };
+        try {
+            $driver = $record->driver($attribute);
+            $baseLocale = $this->resolveBaseLocale($record);
+
+            if ($driver instanceof HybridColumnDriver) {
+                if ($locale === $baseLocale) {
+                    return $attribute;
+                }
+
+                $storageColumn = $driver->resolveStorageColumn($record);
+
+                return "$storageColumn.$locale.$attribute";
+            }
+
+            if ($driver instanceof ExtraOnlyDriver) {
+                $storageColumn = $driver->resolveStorageColumn($record);
+
+                return "$storageColumn.$locale.$attribute";
+            }
+        } catch (\Throwable $exception) {
+            return "$attribute.$locale";
+        }
+
+        return "$attribute.$locale";
     }
 
-    /**
-     * Вытаскиваем конфигурацию атрибута из массива $model->translatable.
-     */
-    protected function resolveAttributeDefinition(Model $record, string $attribute): ?array
-    {
-        if (! property_exists($record, 'translatable')) {
-            return null;
-        }
-
-        $translatable = $record->translatable;
-
-        if (array_key_exists($attribute, $translatable)) {
-            $value = $translatable[$attribute];
-
-            return is_array($value) ? $value : [];
-        }
-
-        if (is_array($translatable) && in_array($attribute, $translatable, true)) {
-            return [];
-        }
-
-        return null;
-    }
-
-    /**
-     * На страницах создания (record=null) строим путь по значениям из конфига.
-     */
     protected function resolveStatePathFromConfig(string $attribute, string $locale): string
     {
         $defaultDriver = config('translatable.default_driver', 'json');
@@ -182,9 +186,6 @@ class LanguageTabs extends Tabs
         return "$attribute.$locale";
     }
 
-    /**
-     * Список локалей: сначала берём из конфига пакета, иначе считаем что локаль одна — app.locale.
-     */
     protected function resolveLocales(): array
     {
         $configuredLocales = config('filament-language-tabs.default_locales', []);
@@ -196,9 +197,6 @@ class LanguageTabs extends Tabs
         return [config('app.locale', 'en')];
     }
 
-    /**
-     * Заголовок для таба: или из конфига, или просто верхний регистр локали.
-     */
     protected function resolveLocaleLabel(string $locale): string
     {
         $labels = config('filament-language-tabs.locale_labels', []);
@@ -210,14 +208,15 @@ class LanguageTabs extends Tabs
         return strtoupper($locale);
     }
 
-    /**
-     * Базовая локаль (нужна для HybridColumnDriver).
-     */
     protected function resolveBaseLocale(?Model $record): string
     {
         if ($record) {
             if (method_exists($record, 'baseLocale')) {
                 return (string) $record->baseLocale();
+            }
+
+            if (property_exists($record, 'baseLocale')) {
+                return (string) $record->baseLocale;
             }
         }
 
@@ -226,12 +225,33 @@ class LanguageTabs extends Tabs
         return $locales[0] ?? config('app.locale', 'en');
     }
 
-    protected function resolveStorageColumn(?Model $record): string
+    protected function prepareBuilderForLocale(Builder $builder, string $attribute, string $locale): void
     {
-        if ($record && method_exists($record, 'translationStorageColumn')) {
-            return (string) $record->translationStorageColumn();
-        }
+        $builder->key("language_tabs.{$attribute}_{$locale}." . spl_object_id($builder));
+        $builder->meta('language_tabs', [
+            'attribute' => $attribute,
+            'locale' => $locale,
+        ]);
 
-        return config('translatable.storage_column', 'extra');
+        $requiredLocales = config('filament-language-tabs.required_locales', []);
+
+        if (! in_array($locale, $requiredLocales, true)) {
+            $builder->required(false);
+        }
+    }
+
+    protected function prepareRepeaterForLocale(Repeater $repeater, string $attribute, string $locale): void
+    {
+        $repeater->key("language_tabs.{$attribute}_{$locale}." . spl_object_id($repeater));
+        $repeater->meta('language_tabs', [
+            'attribute' => $attribute,
+            'locale' => $locale,
+        ]);
+
+        $requiredLocales = config('filament-language-tabs.required_locales', []);
+
+        if (! in_array($locale, $requiredLocales, true)) {
+            $repeater->required(false);
+        }
     }
 }
