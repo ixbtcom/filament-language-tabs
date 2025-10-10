@@ -3,6 +3,8 @@
 namespace Pixelpeter\FilamentLanguageTabs\Forms\Components;
 
 use Closure;
+use Livewire\Attributes\On;
+
 use Filament\Actions\Action;
 use Filament\Forms\Components\Builder;
 use Filament\Forms\Components\Field;
@@ -86,7 +88,7 @@ class LanguageTabs extends Component
             ->key('language_tabs')
             ->extraAlpineAttributes([
                 'x-data' => "{ currentLocale: null }",
-                'x-effect' => 'const locale = tab.replace(\'tab_\', \'\'); $dispatch(\'languageTabChanged\', { locale: locale });console.log(locale)'
+                'x-effect' => 'currentLocale = tab.replace(\'tab_\', \'\'); $dispatch(\'language-tab-changed\', { currentLocale });console.log(currentLocale)'
 
             ])
             ->schema(
@@ -428,8 +430,10 @@ class LanguageTabs extends Component
         });
     }
 
+    #[On('languageTabChanged')]
     public function changeLocale(string $locale): void
     {
+        dd($locale);
         // Обновляем текущую локаль
         $this->currentLocale = $locale;
 
