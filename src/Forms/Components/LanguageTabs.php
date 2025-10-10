@@ -106,26 +106,21 @@ class LanguageTabs extends Tabs
      */
     protected function resolveAttributeStatePath(string $attribute, string $locale): string
     {
-        $livewire = $this->getLivewire();
+        $model = $this->resolveModel();
 
-        if (! method_exists($livewire, 'getRecord')) {
-            return $this->resolveStatePathFromConfig($attribute, $locale);
+        if (! $model instanceof Model) {
+            return "$attribute.$locale";
         }
 
-        $record = $livewire->getRecord();
-
-        if (! $record instanceof Model) {
-            return $this->resolveStatePathFromConfig($attribute, $locale);
-        }
-
-        if (! method_exists($record, 'isTranslatableAttribute') || ! $record->isTranslatableAttribute($attribute)) {
+        if (! method_exists($model, 'isTranslatableAttribute') || ! $model->isTranslatableAttribute($attribute)) {
             return $attribute;
         }
-        $definition = $this->resolveAttributeDefinition($record, $attribute);
+
+        $definition = $this->resolveAttributeDefinition($model, $attribute) ?? [];
 
         $driver = $definition['driver'] ?? config('translatable.default_driver', 'json');
-        $storageColumn = $definition['storage'] ?? $this->resolveStorageColumn($record);
-        $baseLocale = $this->resolveBaseLocale($record);
+        $storageColumn = $definition['storage'] ?? $this->resolveStorageColumn($model);
+        $baseLocale = $this->resolveBaseLocale($model);
 
         return match ($driver) {
             'hybrid' => $locale === $baseLocale
@@ -161,32 +156,35 @@ class LanguageTabs extends Tabs
     }
 
     /**
-     * На страницах создания (record=null) строим путь по значениям из конфига.
-     */
-    protected function resolveStatePathFromConfig(string $attribute, string $locale): string
-    {
-        $defaultDriver = config('translatable.default_driver', 'json');
-        $storageColumn = config('translatable.storage_column', 'extra');
-        $baseLocale = config('app.locale', 'en');
-
-        if ($defaultDriver === 'hybrid') {
-            return $locale === $baseLocale
-                ? $attribute
-                : "$storageColumn.$locale.$attribute";
-        }
-
-        if ($defaultDriver === 'extra_only') {
-            return "$storageColumn.$locale.$attribute";
-        }
-
-        return "$attribute.$locale";
-    }
-
-    /**
-     * Список локалей: сначала берём из конфига пакета, иначе считаем что локаль одна — app.locale.
+     * Список локалей: сначала смотрим на модель, затем на конфиг.
      */
     protected function resolveLocales(): array
     {
+        $model = $this->resolveModel();
+
+        if (! $model) {
+            $configuredLocales = config('filament-language-tabs.default_locales', []);
+
+            if (! empty($configuredLocales)) {
+                return array_values(array_unique($configuredLocales));
+            }
+
+            return [config('app.locale', 'en')];
+        }
+
+        // Модель задаёт локали через метод getTranslatableLocales() или property
+        if (method_exists($model, 'getTranslatableLocales')) {
+            $locales = $model->getTranslatableLocales();
+
+            if (! empty($locales)) {
+                return array_values(array_unique($locales));
+            }
+        }
+
+        if (property_exists($model, 'translatableLocales') && is_array($model->translatableLocales)) {
+            return array_values(array_unique($model->translatableLocales));
+        }
+
         $configuredLocales = config('filament-language-tabs.default_locales', []);
 
         if (! empty($configuredLocales)) {
@@ -226,6 +224,9 @@ class LanguageTabs extends Tabs
         return $locales[0] ?? config('app.locale', 'en');
     }
 
+    /**
+     * Колонка хранения переводов (если модель её задаёт).
+     */
     protected function resolveStorageColumn(?Model $record): string
     {
         if ($record && method_exists($record, 'translationStorageColumn')) {
@@ -233,5 +234,51 @@ class LanguageTabs extends Tabs
         }
 
         return config('translatable.storage_column', 'extra');
+    }
+
+    /**
+     * Пытаемся получить текущую модель (record или новый экземпляр).
+     */
+    protected function resolveModel(): ?Model
+    {
+        $livewire = $this->getLivewire();
+
+        if (method_exists($livewire, 'getRecord')) {
+            $record = $livewire->getRecord();
+
+            if ($record instanceof Model) {
+                return $record;
+            }
+        }
+
+        $modelClass = null;
+
+        if (method_exists($livewire, 'getModel')) {
+            $model = $livewire->getModel();
+
+            if ($model instanceof Model) {
+                return $model;
+            }
+
+            if (is_string($model)) {
+                $modelClass = $model;
+            }
+        } elseif (property_exists($livewire, 'model')) {
+            $model = $livewire->model;
+
+            if ($model instanceof Model) {
+                return $model;
+            }
+
+            if (is_string($model)) {
+                $modelClass = $model;
+            }
+        }
+
+        if ($modelClass && class_exists($modelClass)) {
+            return app($modelClass);
+        }
+
+        return null;
     }
 }
