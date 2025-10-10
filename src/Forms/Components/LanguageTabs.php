@@ -46,10 +46,11 @@ class LanguageTabs extends Component
      */
     protected static array $hydrationHookPropertyCache = [];
 
-    /**
-     * @var array<string, array{attribute: string, locale: string}>
-     */
-    protected array $builderMeta = [];
+    protected bool $hasBuilders = false;
+
+    //protected ?string $currentLocale = null;
+
+    public ?string $currentLocale;
 
     final public function __construct(array|Closure $schema)
     {
@@ -58,7 +59,8 @@ class LanguageTabs extends Component
 
     public function schema(Closure|Schema|array $components): static
     {
-        $this->builderMeta = [];
+        $this->hasBuilders = false;
+        $this->currentLocale = null;
 
         if ($components instanceof Schema) {
             $components = $components->getComponents();
@@ -72,15 +74,21 @@ class LanguageTabs extends Component
         $locales = array_unique($locales);
 
         $tabs = [];
-        foreach ($locales as $locale) {
+        foreach ($locales as $index => $locale) {
             $tabs[] = Tab::make($this->resolveLocaleLabel($locale))
                 ->key("tab_{$locale}")
                 ->schema(
                     $this->tabfields($components, $locale)
                 );
         }
+        $this->currentLocale ??= $locales[0] ?? null;
         $tabsComponent = Tabs::make()
             ->key('language_tabs')
+            ->extraAlpineAttributes([
+                'x-data' => "{ currentLocale: null }",
+                'x-effect' => 'const locale = tab.replace(\'tab_\', \'\'); $dispatch(\'languageTabChanged\', { locale: locale });console.log(locale)'
+
+            ])
             ->schema(
                 $tabs
             );
@@ -91,7 +99,7 @@ class LanguageTabs extends Component
                 ->color('gray')
                 ->size('sm')
                 ->button()
-                ->visible(fn (): bool => ! empty($this->builderMeta))
+                ->visible(fn (): bool => $this->hasBuilders)
                 ->action(fn () => $this->refreshBuilderComponents()),
         ])
             ->key('language_tabs_actions')
@@ -131,11 +139,12 @@ class LanguageTabs extends Component
             if ($clone instanceof Builder) {
                 $componentKey = "language_tabs.{$componentName}." . spl_object_id($clone);
                 $clone->key($componentKey);
-                $this->prepareBuilderForLocale($clone, $base, $locale);
-                $this->builderMeta[$componentKey] = [
+                $this->hasBuilders = true;
+                $clone->meta('language_tabs', [
                     'attribute' => $base,
                     'locale' => $locale,
-                ];
+                ]);
+                $this->prepareBuilderForLocale($clone, $base, $locale);
             } elseif ($clone instanceof Repeater) {
                 $this->prepareRepeaterForLocale($clone, $base, $locale);
             } elseif ($clone instanceof Field) {
@@ -419,15 +428,34 @@ class LanguageTabs extends Component
         });
     }
 
+    public function changeLocale(string $locale): void
+    {
+        // Обновляем текущую локаль
+        $this->currentLocale = $locale;
+
+        // Устанавливаем app locale
+        app()->setLocale($locale);
+
+        // Обновляем все Builder компоненты для новой локали
+        $this->refreshBuilderComponents();
+    }
+
     protected function refreshBuilderComponents(): void
     {
+        dd($this->currentLocale);
         $schema = $this->getChildSchema();
 
         if (! $schema) {
             return;
         }
 
-        foreach ($this->builderMeta as $builderKey => $meta) {
+        foreach ($this->collectBuilderComponents($schema) as $component) {
+            if ($component->isHidden()) {
+                continue;
+            }
+
+            $meta = $component->getMeta('language_tabs');
+
             if (! is_array($meta)) {
                 continue;
             }
@@ -435,15 +463,11 @@ class LanguageTabs extends Component
             $attribute = $meta['attribute'] ?? null;
             $locale = $meta['locale'] ?? null;
 
-            dd($locale,$attribute);
+             if ($this->currentLocale !== null && $locale !== $this->currentLocale) {
+                 continue;
+             }
 
             if (! is_string($attribute) || ! is_string($locale)) {
-                continue;
-            }
-
-            $component = $schema->getComponent($builderKey, withActions: false, withHidden: true, isAbsoluteKey: true);
-
-            if (! $component instanceof Builder) {
                 continue;
             }
 
@@ -473,6 +497,35 @@ class LanguageTabs extends Component
 
             $component->callAfterStateUpdated();
         }
+    }
+
+    /**
+     * @return array<int, Builder>
+     */
+    protected function collectBuilderComponents(Schema $schema): array
+    {
+        $builders = [];
+
+        foreach ($schema->getComponents(withActions: false, withHidden: true) as $component) {
+            if (! $component instanceof Component) {
+                continue;
+            }
+
+            if ($component instanceof Builder) {
+                $builders[] = $component;
+
+                continue;
+            }
+
+            foreach ($component->getChildSchemas(withHidden: true) as $childSchema) {
+                $builders = [
+                    ...$builders,
+                    ...$this->collectBuilderComponents($childSchema),
+                ];
+            }
+        }
+
+        return $builders;
     }
 
     protected function getExistingHydrationHook(Component $component): ?Closure
