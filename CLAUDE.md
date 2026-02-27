@@ -1,93 +1,86 @@
-# CLAUDE.md
+# CLAUDE.md — Filament Language Tabs
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Filament-пакет для мультиязычных полей с группировкой в табы. Интеграция со `spatie/laravel-translatable`.
 
-## Обзор проекта
+## Совместимость
 
-Это Laravel-пакет для FilamentPHP, который добавляет поддержку многоязычных полей с группировкой их в табы. Пакет работает с `spatie/laravel-translatable` для хранения переводов в JSON-формате.
+- **Filament**: 5.x (`filament/schemas` ^4.0)
+- **PHP**: ^8.2|^8.3|^8.4
+- **Laravel**: 11.*|12.*
+- Старые версии: v2.x (Filament 3), v1.x (Filament 2)
 
-## Команды разработки
-
-### Тестирование
-
-```bash
-# Запуск всех тестов (Pest + PHPStan)
-composer test
-
-# Только функциональные тесты
-composer test:pest
-# или
-./vendor/bin/pest
-
-# Параллельное выполнение тестов
-./vendor/bin/pest --parallel
-
-# Только статический анализ
-composer test:phpstan
-# или
-vendor/bin/phpstan analyse
-```
-
-### Качество кода
+## Команды
 
 ```bash
-# Автоматическое форматирование (Laravel Pint)
-composer pint
-# или
-vendor/bin/pint
+composer test              # Pest + PHPStan
+composer test:pest         # Только тесты
+composer test:phpstan      # Только статанализ (level 4)
+composer pint              # Форматирование (Laravel Pint)
 
-# Статический анализ (PHPStan level 4)
-vendor/bin/phpstan analyse
-```
-
-### Публикация ресурсов
-
-```bash
-# Публикация конфигурации
+# Публикация
 php artisan vendor:publish --tag="filament-language-tabs-config"
-
-# Публикация views
 php artisan vendor:publish --tag="filament-language-tabs-views"
 ```
 
-## Архитектура компонента
+## Архитектура
 
 ### Основной компонент: LanguageTabs
 
-**Расположение**: `src/Forms/Components/LanguageTabs.php`
+**Файл:** `src/Forms/Components/LanguageTabs.php`
 
-Компонент наследуется от `Filament\Schemas\Components\Component` и использует `InteractsWithForms`.
+**Наследование:** `LanguageTabs extends Tabs` (Filament\Schemas\Components\Tabs), использует `InteractsWithForms`.
 
-**Ключевые методы:**
+### 3 драйвера переводов
 
-- `schema()` - создает табы для каждой локали, клонируя поля для каждого языка
-- `tabfields()` - клонирует компоненты для конкретной локали, устанавливает `name` как `{base}_{locale}` и `statePath` как `{base}.{locale}`
-- `prepareFieldForLocale()` - настраивает хуки `afterStateHydrated` и `afterStateUpdated` для синхронизации состояния с JSON-переводами
-- `normaliseAttributeState()` - нормализует состояние атрибута из модели Spatie Translatable в структуру `['locale' => 'value']`
+| Driver | statePath | Описание |
+|--------|-----------|----------|
+| `json` (default) | `attribute.locale` | Стандартный Spatie — переводы в JSON-колонке |
+| `hybrid` | base locale в основной колонке, остальные в `storageColumn.locale.attribute` | Оптимизация: base locale без JSON-десериализации |
+| `extra_only` | `storageColumn.locale.attribute` для всех локалей | Все переводы в отдельной колонке |
 
-**Логика работы:**
+Driver определяется через `$model->translatable` массив или fallback на `'json'`.
 
-1. Компонент получает массив базовых полей через `make([...])`
-2. Для каждой локали из конфига создается отдельный Tab
-3. Каждое поле клонируется и настраивается для работы с JSON-переводами через statePath
-4. При гидратации данных из модели вызывается `getTranslations()` и данные распределяются по полям
-5. При обновлении полей данные собираются обратно в JSON-формат и сохраняются через livewire
+### Ключевые методы
 
-### Конфигурация
+| Метод | Назначение |
+|-------|-----------|
+| `schema($components)` | Сохраняет translatableSchema |
+| `getDefaultChildComponents()` | Генерирует Tab для каждой локали, клонирует поля через `getClone()` |
+| `resolveStatePath()` | Настраивает statePath для локализованных полей |
+| `resolveAttributeStatePath()` | Определяет путь в зависимости от driver'а |
+| `resolveLocales()` | 4-уровневый алгоритм определения локалей |
+| `resolveBaseLocale()` | 3-шаговый алгоритм определения базовой локали |
+| `resolveStorageColumn()` | Кастомная колонка через `$model->translationStorageColumn()` |
+| `resolveAttributeDefinition()` | Per-attribute конфигурация из `$model->translatable` |
 
-**Файл**: `config/filament-language-tabs.php`
+**Важно:** используется `getClone()` (не `clone $component`).
+
+### Алгоритм resolveLocales()
+
+1. `$model->getTranslatableLocales()` (метод)
+2. `$model->translatableLocales` (property)
+3. `config('filament-language-tabs.default_locales')`
+4. `[config('app.locale')]`
+
+### Алгоритм resolveBaseLocale()
+
+1. `$record->baseLocale()` (метод)
+2. Первая локаль из `resolveLocales()`
+3. `config('app.locale')`
+
+## Конфигурация
+
+**Файл:** `config/filament-language-tabs.php`
 
 ```php
-// Языки, для которых создаются табы
-'default_locales' => ['de', 'en', 'fr']
-
-// Языки, для которых поля обязательны (required)
-'required_locales' => ['de', 'en']
+'default_locales' => ['de', 'en', 'fr'],    // Локали по умолчанию
+'required_locales' => ['de', 'en'],          // Обязательные локали
+'locale_labels' => ['de' => 'Deutsch', ...], // Кастомные метки табов
 ```
 
-### Интеграция с Spatie Translatable
+## Интеграция с моделью
 
-Модель должна использовать trait `HasTranslations`:
+Модель должна использовать trait `HasTranslations` от Spatie и может определять:
 
 ```php
 use Spatie\Translatable\HasTranslations;
@@ -96,54 +89,16 @@ class Post extends Model {
     use HasTranslations;
 
     public $translatable = ['headline', 'body'];
+    // Или с per-attribute конфигурацией:
+    // public $translatable = ['headline' => ['driver' => 'hybrid']];
 
-    protected $casts = [
-        'headline' => 'array',
-        'body' => 'array',
-    ];
+    // Опциональные методы:
+    public function getTranslatableLocales(): array { ... }
+    public function translationStorageColumn(): string { return 'extra_translations'; }
+    public function baseLocale(): string { return 'ru'; }
 }
 ```
 
-Поля в базе данных должны иметь тип `json`.
-
-## Совместимость
-
-- **FilamentPHP**: v4.x (основная ветка)
-- **PHP**: ^8.2|^8.3|^8.4
-- **Laravel**: 11.*|12.*
-- **Зависимости**: `filament/schemas` ^4.0, `spatie/laravel-package-tools` ^1.13.5
-
-Для старых версий:
-- FilamentPHP v3.x: ветка `v2.x`
-- FilamentPHP v2.x: ветка `v1.x`
-
 ## CI/CD
 
-Проект использует GitHub Actions для автоматизации:
-
-- **fix-php-code-style-issues.yml** - автоматический Pint при каждом push
-- **phpstan.yml** - статический анализ при изменении PHP-файлов
-- **run-tests.yml** - Pest тесты
-- **dependabot-auto-merge.yml** - автоматический merge для patch/minor обновлений
-
-## Особенности реализации
-
-### Клонирование полей
-
-Компонент клонирует поля для каждой локали с помощью `clone $component`. Важно понимать, что это shallow clone - объекты внутри не дублируются глубоко.
-
-### Нормализация атрибутов
-
-Свойство `$normalisedAttributes` отслеживает уже нормализованные атрибуты, чтобы избежать повторной обработки. Это критично для производительности при множественных гидратациях.
-
-### Определение базовой локали
-
-Компонент пытается определить базовую локаль в следующем порядке:
-1. Метод `$record->baseLocale()`
-2. Свойство `$record->baseLocale`
-3. Первая локаль из `default_locales`
-4. Fallback на `config('app.locale')`
-
-### Интеграция с Livewire
-
-После обновления поля вызывается `refreshFormData([$attribute])` для обновления других зависимых полей, если метод доступен в livewire-компоненте.
+GitHub Actions: fix-php-code-style-issues, phpstan, run-tests, dependabot-auto-merge.
