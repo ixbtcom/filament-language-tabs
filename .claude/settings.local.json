@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(cat:*)",
+      "Bash(mkdir:*)",
+      "Read(//Users/mikhailpanyushkin/code/xcom/libs/forms/**)",
+      "Read(//Users/mikhailpanyushkin/code/xcom/libs/filament/**)",
+      "Read(//Users/mikhailpanyushkin/code/xcom/filament-editorjs/src/Forms/Components/**)",
+      "Read(//Users/mikhailpanyushkin/code/xcom/filament-editorjs/resources/views/forms/components/fields/**)",
+      "Read(//Users/mikhailpanyushkin/code/xcom/filament-editorjs/**)",
+      "Read(//Users/mikhailpanyushkin/code/xcom/libs/filament-translatable-tabs/**)",
+      "Bash(find:*)",
+      "Read(//Users/mikhailpanyushkin/code/xcom/laravel-translatable/src/**)",
+      "Read(//Users/mikhailpanyushkin/code/xcom/laravel-translatable/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
