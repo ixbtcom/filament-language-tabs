@@ -1,20 +1,37 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_synced_from": "~/code/claude/templates/code/settings.local.json",
   "permissions": {
+    "defaultMode": "default",
     "allow": [
-      "Bash(tree:*)",
+      "Bash(ask-deepseek:*)",
+      "Bash(ast-grep:*)",
+      "Bash(bat:*)",
       "Bash(cat:*)",
-      "Bash(mkdir:*)",
-      "Read(//Users/mikhailpanyushkin/code/xcom/libs/forms/**)",
-      "Read(//Users/mikhailpanyushkin/code/xcom/libs/filament/**)",
-      "Read(//Users/mikhailpanyushkin/code/xcom/filament-editorjs/src/Forms/Components/**)",
-      "Read(//Users/mikhailpanyushkin/code/xcom/filament-editorjs/resources/views/forms/components/fields/**)",
-      "Read(//Users/mikhailpanyushkin/code/xcom/filament-editorjs/**)",
-      "Read(//Users/mikhailpanyushkin/code/xcom/libs/filament-translatable-tabs/**)",
+      "Bash(deepseek-write:*)",
+      "Bash(extract-chat:*)",
+      "Bash(fd:*)",
       "Bash(find:*)",
-      "Read(//Users/mikhailpanyushkin/code/xcom/laravel-translatable/src/**)",
-      "Read(//Users/mikhailpanyushkin/code/xcom/laravel-translatable/**)"
+      "Bash(jq:*)",
+      "Bash(mkdir:*)",
+      "Bash(rg:*)",
+      "Bash(tree:*)"
     ],
     "deny": [],
     "ask": []
+  },
+  "enabledPlugins": {
+    "context7@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "remember@claude-plugins-official": false,
+    "codex@openai-codex": true,
+    "context-mode@context-mode": true,
+    "pilot@inline": true,
+    "chrome-devtools-mcp@chrome-devtools-plugins": true
   }
 }

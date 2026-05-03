@@ -28,3 +28,9 @@
 - Craft concise, imperative commit messages; optional prefixes (`feature:`, `fix:`) reflect the existing history.
 - Group related functional and test changes together, and include formatted output from `composer test` when pushing branches.
 - Pull requests should link to tracked issues, describe the change, list manual verification steps, and attach screenshots or GIFs when UI output changes.
+
+---
+
+## DeepSeek delegation (synced)
+
+@~/code/claude/snippets/deepseek-routing.md

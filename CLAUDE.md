@@ -102,3 +102,9 @@ class Post extends Model {
 ## CI/CD
 
 GitHub Actions: fix-php-code-style-issues, phpstan, run-tests, dependabot-auto-merge.
+
+---
+
+## DeepSeek delegation (synced)
+
+@~/code/claude/snippets/deepseek-routing.md
